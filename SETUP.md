@@ -90,7 +90,7 @@ That restriction is in tinygrad's `ops_nv.py`, not in TinyGPU itself. TinyGPU's 
 
 | GPU | Device ID | eGPU Enclosure | Status |
 |-----|-----------|---------------|--------|
-| GTX 1060 6GB (Gigabyte) | 0x1c03 | TBD | PCIe enumeration ✅, BAR mapping pending |
+| GTX 1060 6GB (Gigabyte) | 0x1c03 | Razer Core X Chroma V2 | PCIe enum ✅, MMIO ✅, Falcon init ⏳ |
 
 ## BAR Layout (Pascal GP106)
 
