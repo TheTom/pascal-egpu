@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.eggs/
+firmware/blobs/
+*.gguf
+.DS_Store

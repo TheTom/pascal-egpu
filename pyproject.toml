@@ -1,0 +1,9 @@
+[project]
+name = "pascal-egpu"
+version = "0.1.0"
+description = "Driverless NVIDIA Pascal (GTX 1060) compute from macOS Apple Silicon over Thunderbolt eGPU"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
