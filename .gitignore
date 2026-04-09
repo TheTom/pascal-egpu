@@ -2,6 +2,6 @@ __pycache__/
 *.pyc
 *.egg-info/
 .eggs/
-firmware/blobs/
+# firmware/blobs/ — tracked: NVIDIA-signed blobs are publicly available and required for secure boot
 *.gguf
 .DS_Store
