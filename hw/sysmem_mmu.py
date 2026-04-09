@@ -31,10 +31,21 @@ import struct
 from hw.mmu import make_pde, make_pte, make_instance_block
 
 
-# Aperture constants
+# Aperture constants for PDE/PTE entries (page tables)
 APERTURE_VIDMEM = 0
 APERTURE_SYSMEM_COH = 1
 APERTURE_SYSMEM_NONCOH = 2
+
+# CRITICAL: Instance block (NV_RAMIN) uses DIFFERENT aperture encoding!
+# From NVIDIA open-gpu-kernel-modules: src/common/inc/swref/published/pascal/gp100/dev_ram.h
+#   NV_RAMIN_PAGE_DIR_BASE_TARGET_VID_MEM            = 0x00
+#   NV_RAMIN_PAGE_DIR_BASE_TARGET_SYS_MEM_COHERENT   = 0x02
+#   NV_RAMIN_PAGE_DIR_BASE_TARGET_SYS_MEM_NONCOHERENT = 0x03
+# This mismatch (PDE uses 2, RAMIN uses 3 for SYSMEM_NONCOH) is a known
+# source of init failures — the Falcon can't DMA if the aperture is wrong.
+RAMIN_TARGET_VIDMEM = 0
+RAMIN_TARGET_SYSMEM_COH = 2
+RAMIN_TARGET_SYSMEM_NONCOH = 3
 
 
 class SysmemAllocator:
@@ -147,16 +158,15 @@ class SysmemMMU:
         # (we don't identity-map anything yet)
 
         # Instance block: point to PDE3 in system memory
-        inst_data = make_instance_block(pde3_addr, target=APERTURE_SYSMEM_NONCOH)
-        # Overwrite the instance block memory
+        # CRITICAL: use RAMIN_TARGET encoding (3), NOT PDE encoding (2)
+        inst_data = make_instance_block(pde3_addr, target=RAMIN_TARGET_SYSMEM_NONCOH)
         if hasattr(inst_mem, '__setitem__'):
             for i, b in enumerate(inst_data):
                 inst_mem[i] = b
 
-        # Also need to set VOL flag in instance block
-        # Re-read what make_instance_block wrote and add VOL
+        # Set VOL flag (bit 2) — required for system memory
         pd_lo = struct.unpack_from('<I', inst_data, 0x200)[0]
-        pd_lo |= (1 << 2)  # VOL = 1 (system memory is volatile)
+        pd_lo |= (1 << 2)  # NV_RAMIN_PAGE_DIR_BASE_VOL_TRUE
         struct.pack_into('<I', inst_mem, 0x200, pd_lo)
 
         self._inst_addr = inst_addr
