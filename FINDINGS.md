@@ -141,10 +141,43 @@ Soft reset, doesn't trigger a real PCIe Secondary Bus Reset. WPR2_HI remains `0x
 
 ## Paths Not Yet Tried (Stopped By GPU Lockup)
 
-- **Thunderbolt Bridge Secondary Bus Reset (SBR)** — writing bit 6 of the upstream PCIe bridge's Bridge Control Register for 1us. Would require TinyGPU to expose writes to OTHER PCI devices' config space (the bridge), not just the GPU. Unknown if possible.
+- **Thunderbolt Bridge Secondary Bus Reset (SBR)** — writing bit 6 of the upstream PCIe bridge's Bridge Control Register for 1us. Would require TinyGPU to expose writes to OTHER PCI devices' config space (the bridge), not just the GPU. The PCI path is `AppleT6050PCIeC/pcic0-bridge@0/IOPP/pci-bridge@0/IOPP/pci-bridge@0/IOPP/display@0` — there are 3 bridges between the Apple Thunderbolt controller and the GPU, the most direct is the Razer PCI switch downstream port.
 - **X86 Option ROM emulation** — interpreting the x86 code in the VBIOS and executing just the register pokes. Non-trivial (60KB of x86 code).
-- **Host-side devinit opcode interpreter** — implementing the 50+ devinit opcodes (INIT_ZM_REG, INIT_IO_MASK_OR, INIT_PLL, INIT_TIME, etc.) as a Python interpreter and running the script at 0x8523. Might unlock some domains but full DRAM training requires priv writes to FBP which is dead.
-- **Debug register access** — chips have undocumented bringup/debug modes accessed via specific register sequences. No public documentation.
+- **Custom DriverKit extension exposing bridge config space** — would let us issue PCIe SBR and re-trigger Thunderbolt PCI re-enumeration.
+
+## Additional Diagnostics (April 2026)
+
+The original FINDINGS investigation has been extended with deeper Falcon-level probing:
+
+### PMC_ENABLE bit map
+Maximum writable PMC_ENABLE = `0x5c6cf1e1`. Bit 4 (PWR/PMU) is silently dropped — the PMU engine cannot be PMC-enabled from the host. Bits that DO stick: HOST(0), PFIFO(5), PGRAPH(6), PCRTC(8), PMEDIA-PRMVGA(12-15), PHOST(18), PRAMHT(19), PRMHT(21), PVCRYPT(22), PCE0-2(26-28), PNVDEC(30).
+
+### All Falcons probed (`hw/probe_all_falcons.py`)
+With PMC_ENABLE = max, the Falcon engines visible are:
+- **PMU** @ 0x10a000: HWCFG 0x400e0100, SCTL 0x3002 (HSMODE+L3), DMACTL 0x80 stuck
+- **MSVLD/NVDEC** @ 0x84000: priv-rejected (badf1002)
+- **MSENC/NVENC0** @ 0x1c8000: SCTL 0x3000 (LS+L3), IMEM writable
+- **SEC2** @ 0x87000: SCTL 0x3000 (LS+L3), IMEM 64KB visible
+- **FECS** @ 0x409000: SCTL 0x3000, IMEM 24KB writable
+- **GPCCS, NVENC1, MSPDEC, MSPPP, DPU**: all priv-rejected
+
+### Falcon execution test (`hw/test_falcon_exec.py`, `falcon_exec_verify.py`)
+**Initial false positive**: setting CPUCTL=02 (STARTCPU) on FECS/MSENC/SEC2 transitioned CPUCTL to 0x10 (HALTED), suggesting unsigned execution worked.
+
+**Reality**: TRACEPC reads 0x101 after STARTCPU, MAILBOX writes from hand-encoded mov+iowr+halt programs **never take effect**. The HALTED state is a security exception, not a real halt. The Falcons silently fault on first instruction fetch when SCTL has UCODE_LEVEL=3.
+
+### SCTL is hard-locked (`hw/sctl_race.py`)
+SCTL writes are silently dropped on all Falcons. Tested:
+- Direct write 0 / 0x3 / 0x10 / etc.
+- Race condition: PMC reset PGRAPH, immediately write SCTL — sticks at 0x3000
+- All FALCON_*_PRIV_LEVEL_MASK registers tried — most reject unlock writes (read back 0x00000000), only DEBUG/RESET/EXE PLMs accept 0xffffffff
+- DBGCTL writes also dropped (read back 0)
+
+### ICD interface
+Falcon Internal Crashdebug interface at 0x200/0x204/0x208/0x20c reads 0. Cannot be activated without DBGCTL access (which is locked).
+
+### Conclusion
+The Falcon UCODE_LEVEL=3 latch is enforced by hardware and cannot be cleared from the host on Pascal eGPU over Apple Silicon Thunderbolt. The full chain — PMC bit 4 unenableable + SCTL sticky + DBGCTL locked + PLMs unwritable — means there is no host-side path to run unsigned Falcon code on this chip in this configuration. The only remaining unexplored option is Thunderbolt bridge SBR via a custom DriverKit extension.
 
 ## What Works Today
 
