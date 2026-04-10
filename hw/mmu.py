@@ -113,9 +113,14 @@ def make_pte(address: int, valid: bool = True, target: int = 0, vol: bool = Fals
 def make_instance_block(pd_addr: int, target: int = 0) -> bytes:
     """Create an instance block with page directory base config.
 
+    WARNING: The target field uses NV_RAMIN encoding, NOT PDE encoding!
+      NV_RAMIN: 0=VIDMEM, 2=SYSMEM_COH, 3=SYSMEM_NONCOH
+      PDE:      0=VIDMEM, 1=SYSMEM_COH, 2=SYSMEM_NONCOH
+    Pass the RAMIN value, not the PDE value.
+
     Args:
         pd_addr: Physical address of the top-level page directory
-        target: 0=VIDMEM, 2=SYSMEM_COH
+        target: 0=VIDMEM, 2=SYSMEM_COH, 3=SYSMEM_NONCOH (NV_RAMIN encoding)
 
     Returns:
         4096 bytes — the full instance block
