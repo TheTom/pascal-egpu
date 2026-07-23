@@ -30,7 +30,7 @@ This document captures the full investigation.
 |---|---|---|
 | PMC scratch writes | `0xbad00200` | PMC scratch domain clock-gated |
 | PMU Falcon writes (in some states) | `0xbad00200` / `0xbad0da00` / `0xdead5ec1` | PMU in HS mode, writes gated by security |
-| VRAM via BAR1 or PRAMIN | `0xbad0acXX` (incrementing counter) | FBP priv ring stations not registered |
+| VRAM via BAR1 or PRAMIN | `0xbad0acXX` (incrementing low byte) | Framebuffer/VRAM path unavailable; inaccessible FBP stations are one plausible cause |
 | SEC2 Falcon reads | `0xffffffff` | SEC2 engine powered off |
 | GPCCS Falcon reads | `0xffffffff` | GPC priv ring stations not registered |
 | FECS firmware execution | CPUCTL = 0x52 with STARTCPU stuck set | Falcon rejects unsigned code (UCODE_LEVEL = 3) |
@@ -41,6 +41,35 @@ This document captures the full investigation.
 | D3/D0 power state cycle | No effect | Returns to same state |
 | Nouveau GP10b priv ring init writes | Broke state further | Wrong chip, made things worse |
 | Raw RING_CMD writes | Fully collapsed priv ring | Cumulative side effects, hardware lockup |
+
+### Note on `0xBAD0ACxx`
+
+There is currently no official evidence that `0xBAD0ACxx` literally encodes
+“BAD ACCESS”. However, the observed behavior is consistent with a
+hardware-generated response returned when a BAR1 or PRAMIN access cannot be
+serviced through the normal framebuffer/VRAM path.
+
+Different underlying failures may lead to this state. These include incomplete
+DEVINIT, unavailable FBP stations, failed DRAM or memory-PHY initialization,
+memory-controller bring-up failure, or another early initialization problem.
+The shared observable result is that the access does not return normal VRAM
+contents and instead produces `0xBAD0ACxx`.
+
+When this happens, MATS may report mismatches across every tested address
+because the returned value is a common synthetic response rather than the
+contents of individual physical memory cells. Such output should therefore not
+be interpreted automatically as independent failure of every VRAM cell.
+
+The response may also appear only over part of the BAR1 aperture. A boundary
+between normal and `0xBAD0ACxx` reads indicates address-dependent availability
+of the framebuffer path, but does not by itself prove that the corresponding
+linear range of physical VRAM cells is damaged. BAR1 is an aperture, and the
+boundary may instead reflect mapping, partition, controller, training, or other
+initialization state.
+
+The mnemonic interpretation “BAD ACCESS” remains plausible but unconfirmed.
+The incrementing low byte may distinguish successive failed accesses, although
+its exact meaning is also undocumented.
 
 ## Diagnostic Register Values
 
